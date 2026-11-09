@@ -56,7 +56,7 @@ $profileContent = @"
 function psico {
     & "$installDir\psico.ps1" @args
 }
-Set-Alias psico psico
+Set-Alias psico $profile
 "@
 
 Write-Host "--- プロファイル ---" -ForegroundColor Cyan

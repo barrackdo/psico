@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-    PSICO - PowerShell Script Integration & Control Organizer (Wrapper)
+    PSICO - PowerShell Script CLI Tool (Wrapper)
 
 .DESCRIPTION
     Thin wrapper that handles zone identifier unblocking, sets up script paths,

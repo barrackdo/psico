@@ -2,7 +2,7 @@
 
 <#
 .SYNOPSIS
-    PSICO Core - PowerShell Script Integration & Control Organizer (Core)
+    PSICO Core - PowerShell Script CLI Tool (Core)
 
 .DESCRIPTION
     PowerShellスクリプトの統合・制御・整理を目的としたCLI補助ツール（コアモジュール）
@@ -394,7 +394,7 @@ function Set-PsicoLogLevel {
 function Show-PsicoHelp {
     Write-Host @"
 
-PSICO - PowerShell Script Integration & Control Organizer v0.1.0
+PowerShell Script CLI Tool v0.1.0
 
 USAGE:
     psico [command] [options]

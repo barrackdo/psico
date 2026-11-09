@@ -18,7 +18,10 @@ PowerShell の一行コマンドでインストールできます。
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/barrackdo/psico/raw/main/install.ps1 | iex"
 ```
-※ インストール先は `%UserProfile%\psico` となります。
+※ インストール先は `%LocalAppData%\PSICO` となります。
+GitHubリポジトリ: https://github.com/barrackdo/psico
+
+インストール完了後、出力されるプロファイル追記用テキストを PowerShell のプロファイル (`$PROFILE`) に追加し、再起動してください。
 
 ### 手動インストール
 1. `PSICO` ディレクトリを作成

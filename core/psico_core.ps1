@@ -1,0 +1,615 @@
+# {"version": "0.1.0"}
+
+<#
+.SYNOPSIS
+    PSICO Core - PowerShell Script Integration & Control Organizer (Core)
+
+.DESCRIPTION
+    PowerShellスクリプトの統合・制御・整理を目的としたCLI補助ツール（コアモジュール）
+#>
+
+# 設定読み込み
+function Get-PsicoConfig {
+    if (Test-Path $script:ConfigFile) {
+        try {
+            return Get-Content $script:ConfigFile -Raw | ConvertFrom-Json
+        } catch {
+            return @{
+                editor = "notepad.exe"
+                logLevel = 2
+            }
+        }
+    }
+    return @{
+        editor = "notepad.exe"
+        logLevel = 2
+    }
+}
+
+# 設定保存
+function Set-PsicoConfig {
+    param($Config)
+    $Config | ConvertTo-Json | Set-Content $script:ConfigFile -Encoding UTF8
+}
+
+# ログ出力
+function Write-PsicoLog {
+    param(
+        [string]$Message,
+        [int]$Level = 1
+    )
+
+    $config = Get-PsicoConfig
+    if ($config.logLevel -ge $Level) {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $logMessage = "[$timestamp] $Message"
+        Write-Host $logMessage
+
+        if (-not (Test-Path $script:LogsDir)) {
+            New-Item -ItemType Directory -Path $script:LogsDir -Force | Out-Null
+        }
+
+        $logFile = Join-Path $script:LogsDir "psico_$(Get-Date -Format 'yyyyMMdd').log"
+        Add-Content -Path $logFile -Value $logMessage -Encoding UTF8
+    }
+}
+
+# メタ情報抽出
+function Get-ScriptMeta {
+    param([string]$ScriptPath)
+
+    if (-not (Test-Path $ScriptPath)) {
+        return $null
+    }
+
+    $content = Get-Content $ScriptPath -Raw
+    if ($content -match '# @meta\s*({[\s\S]*?})') {
+        try {
+            return $Matches[1] | ConvertFrom-Json
+        } catch {
+            return $null
+        }
+    }
+    return $null
+}
+
+# --init: 初期構成生成
+function Initialize-Psico {
+    Write-Host "Initializing PSICO structure..."
+
+    @($script:ScriptsDir, $script:ModulesDir, $script:LogsDir, $script:CoreDir) | ForEach-Object {
+        if (-not (Test-Path $_)) {
+            New-Item -ItemType Directory -Path $_ -Force | Out-Null
+            Write-Host "Created: $_"
+        }
+    }
+
+    if (-not (Test-Path $script:ConfigFile)) {
+        $defaultConfig = @{
+            editor = "notepad.exe"
+            logLevel = 2
+        }
+        Set-PsicoConfig $defaultConfig
+        Write-Host "Created: $script:ConfigFile"
+    }
+
+    Write-Host "PSICO initialized successfully!" -ForegroundColor Green
+}
+
+# --install: スクリプトインストール
+function Install-PsicoScript {
+    param([string]$Url)
+
+    Write-PsicoLog "Installing from: $Url" 1
+
+    $tempFile = Join-Path $env:TEMP "psico_download_$(Get-Date -Format 'yyyyMMddHHmmss').tmp"
+
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $tempFile
+
+        # テキストファイルか確認
+        try {
+            $null = Get-Content $tempFile -ErrorAction Stop
+        } catch {
+            Write-Host "Error: Downloaded file is not a valid text file" -ForegroundColor Red
+            Remove-Item $tempFile -Force
+            return
+        }
+
+        $fileName = [System.IO.Path]::GetFileName($Url)
+        $extension = [System.IO.Path]::GetExtension($fileName)
+
+        $destination = switch ($extension) {
+            ".ps1" { Join-Path $script:ScriptsDir $fileName }
+            ".psm1" { Join-Path $script:ModulesDir $fileName }
+            default {
+                Write-Host "Error: File must be .ps1 or .psm1" -ForegroundColor Red
+                Remove-Item $tempFile -Force
+                return
+            }
+        }
+
+        Move-Item $tempFile $destination -Force
+        Write-Host "Installed: $fileName" -ForegroundColor Green
+        Write-PsicoLog "Installed: $fileName" 1
+
+    } catch {
+        Write-Host "Error: Failed to download or install - $($_.Exception.Message)" -ForegroundColor Red
+        if (Test-Path $tempFile) {
+            Remove-Item $tempFile -Force
+        }
+    }
+}
+
+# --add: 新規スクリプト作成
+function Add-PsicoScript {
+    param(
+        [string]$Name,
+        [string]$Description
+    )
+
+    $scriptPath = Join-Path $script:ScriptsDir "$Name.ps1"
+
+    if (Test-Path $scriptPath) {
+        Write-Host "Error: Script '$Name' already exists" -ForegroundColor Red
+        return
+    }
+
+    $template = @"
+# @meta {
+  "version": "0.1.0",
+  "description": "$Description",
+  "tag": [],
+  "args": []
+}
+
+param()
+
+# Your script here
+Write-Host "Hello from $Name!"
+"@
+
+    Set-Content -Path $scriptPath -Value $template -Encoding UTF8
+    Write-Host "Created: $Name.ps1" -ForegroundColor Green
+    Write-PsicoLog "Created script: $Name" 1
+
+    # エディタで開く
+    $config = Get-PsicoConfig
+    Start-Process $config.editor -ArgumentList "`"$scriptPath`""
+}
+
+# --remove: スクリプト削除
+function Remove-PsicoScript {
+    param([string]$Name)
+
+    $scriptPath = Join-Path $script:ScriptsDir "$Name.ps1"
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Error: Script '$Name' not found" -ForegroundColor Red
+        return
+    }
+
+    Remove-Item $scriptPath -Force
+    Write-Host "Removed: $Name.ps1" -ForegroundColor Green
+    Write-PsicoLog "Removed script: $Name" 1
+}
+
+# --edit: スクリプト編集
+function Edit-PsicoScript {
+    param([string]$Name)
+
+    $scriptPath = Join-Path $script:ScriptsDir "$Name.ps1"
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Error: Script '$Name' not found" -ForegroundColor Red
+        return
+    }
+
+    $config = Get-PsicoConfig
+    Start-Process $config.editor -ArgumentList "`"$scriptPath`""
+}
+
+# --list: スクリプト一覧表示
+function Get-PsicoScriptList {
+    param([string]$Tag = "")
+
+    $scripts = Get-ChildItem $script:ScriptsDir -Filter "*.ps1" -ErrorAction SilentlyContinue
+
+    if (-not $scripts) {
+        Write-Host "No scripts found" -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "`nAvailable Scripts:" -ForegroundColor Cyan
+    Write-Host ("=" * 60)
+
+    foreach ($script in $scripts) {
+        $meta = Get-ScriptMeta $script.FullName
+        $name = $script.BaseName
+        $description = if ($meta -and $meta.description) { $meta.description } else { "No description" }
+
+        # タグフィルタリング
+        if ($Tag) {
+            $tagName = $Tag.TrimStart('#')
+            if (-not ($meta.tag -contains $tagName)) {
+                continue
+            }
+        }
+
+        Write-Host "  $name" -ForegroundColor Green -NoNewline
+        Write-Host " - $description"
+
+        if ($meta -and $meta.tag -and $meta.tag.Count -gt 0) {
+            Write-Host "    Tags: " -NoNewline -ForegroundColor Gray
+            Write-Host ($meta.tag | ForEach-Object { "#$_" }) -Separator ", " -ForegroundColor DarkGray
+        }
+    }
+
+    Write-Host ("=" * 60)
+}
+
+# --search: スクリプト検索
+function Search-PsicoScript {
+    param([string]$Pattern)
+
+    $scripts = Get-ChildItem $script:ScriptsDir -Filter "*.ps1" -ErrorAction SilentlyContinue
+
+    if (-not $scripts) {
+        Write-Host "No scripts found" -ForegroundColor Yellow
+        return
+    }
+
+    $isRegex = $Pattern -match '^/(.+)/$'
+    if ($isRegex) {
+        $Pattern = $Matches[1]
+    }
+
+    Write-Host "`nSearch Results:" -ForegroundColor Cyan
+    Write-Host ("=" * 60)
+
+    $found = $false
+    foreach ($script in $scripts) {
+        $meta = Get-ScriptMeta $script.FullName
+        $name = $script.BaseName
+        $description = if ($meta -and $meta.description) { $meta.description } else { "" }
+        $searchText = "$name $description"
+
+        $match = if ($isRegex) {
+            $searchText -match $Pattern
+        } else {
+            $searchText -like "*$Pattern*"
+        }
+
+        if ($match) {
+            $found = $true
+            Write-Host "  $name" -ForegroundColor Green -NoNewline
+            Write-Host " - $description"
+        }
+    }
+
+    if (-not $found) {
+        Write-Host "  No matches found" -ForegroundColor Yellow
+    }
+
+    Write-Host ("=" * 60)
+}
+
+# --info: メタ情報表示
+function Show-PsicoScriptInfo {
+    param([string]$Name)
+
+    $scriptPath = Join-Path $script:ScriptsDir "$Name.ps1"
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Error: Script '$Name' not found" -ForegroundColor Red
+        return
+    }
+
+    $meta = Get-ScriptMeta $scriptPath
+
+    Write-Host "`nScript Information: $Name" -ForegroundColor Cyan
+    Write-Host ("=" * 60)
+
+    if ($meta) {
+        Write-Host "Version:     " -NoNewline -ForegroundColor Gray
+        Write-Host $meta.version
+        Write-Host "Description: " -NoNewline -ForegroundColor Gray
+        Write-Host $meta.description
+        Write-Host "Tags:        " -NoNewline -ForegroundColor Gray
+        Write-Host ($meta.tag -join ", ")
+
+        if ($meta.args -and $meta.args.Count -gt 0) {
+            Write-Host "`nArguments:" -ForegroundColor Gray
+            for ($i = 0; $i -lt $meta.args.Count; $i++) {
+                $arg = $meta.args[$i]
+                $typeStr = Get-ArgumentTypeString $arg
+                Write-Host "  [$i] Type: $typeStr" -NoNewline
+                if ($arg.default) {
+                    Write-Host " (default: $($arg.default))" -NoNewline
+                }
+                if ($arg.output) {
+                    Write-Host " - $($arg.output)" -NoNewline
+                }
+                if ($arg.options) {
+                    Write-Host " [options: $($arg.options -join ', ')]" -NoNewline
+                }
+                Write-Host ""
+            }
+        }
+    } else {
+        Write-Host "No metadata found" -ForegroundColor Yellow
+    }
+
+    Write-Host ("=" * 60)
+}
+
+# --test: テスト実行
+function Test-PsicoScript {
+    param([string]$Name)
+
+    $scriptPath = Join-Path $script:ScriptsDir "$Name.ps1"
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Error: Script '$Name' not found" -ForegroundColor Red
+        return
+    }
+
+    Write-Host "Testing script: $Name" -ForegroundColor Cyan
+    Write-Host "Note: This is a test run with mock arguments" -ForegroundColor Yellow
+    Write-Host ("=" * 60)
+
+    try {
+        & $scriptPath
+        Write-Host ("=" * 60)
+        Write-Host "Test completed" -ForegroundColor Green
+    } catch {
+        Write-Host "Test failed: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# --log: ログレベル変更
+function Set-PsicoLogLevel {
+    param([int]$Level)
+
+    if ($Level -eq -1) {
+        if (Test-Path $script:LogsDir) {
+            Remove-Item (Join-Path $script:LogsDir "*") -Force
+            Write-Host "Log files deleted" -ForegroundColor Green
+        }
+        return
+    }
+
+    if ($Level -lt 0 -or $Level -gt 2) {
+        Write-Host "Error: Log level must be 0, 1, or 2" -ForegroundColor Red
+        return
+    }
+
+    $config = Get-PsicoConfig
+    $config.logLevel = $Level
+    Set-PsicoConfig $config
+    Write-Host "Log level set to: $Level" -ForegroundColor Green
+}
+
+# --help: ヘルプ表示
+function Show-PsicoHelp {
+    Write-Host @"
+
+PSICO - PowerShell Script Integration & Control Organizer v0.1.0
+
+USAGE:
+    psico [command] [options]
+    psico <script-name> [args...]
+
+COMMANDS:
+    --init                          Initialize PSICO structure
+    --install, -i <url>             Install script from URL (.ps1 or .psm1)
+    --add, -a <name> <description>  Create new script
+    --remove, -r <name>             Remove script
+    --edit, -e <name>               Edit script
+    --list, -l [#tag]               List all scripts (optionally filter by tag)
+    --search, -s <pattern>          Search scripts (wildcard or /regex/)
+    --info <name>                   Show script metadata
+    --test <name>                   Test run script
+    --log <level>                   Set log level (0-2, or -1 to delete logs)
+    --help, -h                      Show this help
+    --version, -v                   Show version
+
+EXAMPLES:
+    psico --init
+    psico --add myScript "My useful script"
+    psico --install https://example.com/script.ps1
+    psico --list
+    psico --list #utility
+    psico --search backup
+    psico --search /test.*/
+    psico myScript arg1 arg2
+
+"@ -ForegroundColor Cyan
+}
+
+# 引数タイプの取得（配列または文字列）
+function Get-ArgumentTypes {
+    param($ArgMeta)
+
+    if ($ArgMeta.type -is [array]) {
+        return $ArgMeta.type
+    } else {
+        return @($ArgMeta.type)
+    }
+}
+
+# 引数タイプの表示用文字列
+function Get-ArgumentTypeString {
+    param($ArgMeta)
+
+    $types = Get-ArgumentTypes $ArgMeta
+    if ($types.Count -gt 1) {
+        return ($types -join '|')
+    } else {
+        return $types[0]
+    }
+}
+
+# スクリプト実行
+function Invoke-PsicoScript {
+    param(
+        [string]$Name,
+        [string[]]$Arguments
+    )
+
+    $scriptPath = Join-Path $script:ScriptsDir "$Name.ps1"
+
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Error: Script '$Name' not found" -ForegroundColor Red
+        Write-Host "Use 'psico --list' to see available scripts" -ForegroundColor Yellow
+        return
+    }
+
+    $meta = Get-ScriptMeta $scriptPath
+    $scriptArgs = @()
+
+    # メタ情報に基づいて引数を処理
+    if ($meta -and $meta.args) {
+        for ($i = 0; $i -lt $meta.args.Count; $i++) {
+            $argMeta = $meta.args[$i]
+
+            if ($i -lt $Arguments.Count) {
+                $scriptArgs += $Arguments[$i]
+            } else {
+                # 対話式入力
+                $types = Get-ArgumentTypes $argMeta
+                $typeString = Get-ArgumentTypeString $argMeta
+                $prompt = if ($argMeta.output) { $argMeta.output } else { "Enter argument [$typeString]" }
+
+                # 複数typeの場合は選択させる
+                if ($types.Count -gt 1) {
+                    Write-Host $prompt
+                    Write-Host "Select input type:" -ForegroundColor Yellow
+                    for ($j = 0; $j -lt $types.Count; $j++) {
+                        Write-Host "  [$j] $($types[$j])"
+                    }
+                    $typeSelection = Read-Host "Select type"
+
+                    if ($typeSelection -match '^\d+$' -and [int]$typeSelection -lt $types.Count) {
+                        $selectedType = $types[[int]$typeSelection]
+                        $value = Read-Host "Enter $selectedType value"
+                        $scriptArgs += $value
+                    } else {
+                        Write-Host "Invalid selection, using first type: $($types[0])" -ForegroundColor Yellow
+                        $value = Read-Host "Enter $($types[0]) value"
+                        $scriptArgs += $value
+                    }
+                }
+                # enumの場合
+                elseif ($types[0] -eq "enum" -and $argMeta.options) {
+                    Write-Host $prompt
+                    for ($j = 0; $j -lt $argMeta.options.Count; $j++) {
+                        Write-Host "  [$j] $($argMeta.options[$j])"
+                    }
+                    $selection = Read-Host "Select option"
+                    if ($selection -match '^\d+$' -and [int]$selection -lt $argMeta.options.Count) {
+                        $scriptArgs += $argMeta.options[[int]$selection]
+                    } else {
+                        $scriptArgs += $selection
+                    }
+                }
+                # defaultがある場合
+                elseif ($argMeta.default) {
+                    $input = Read-Host "$prompt (default: $($argMeta.default))"
+                    $scriptArgs += if ($input) { $input } else { $argMeta.default }
+                }
+                # 通常の入力
+                else {
+                    $scriptArgs += Read-Host $prompt
+                }
+            }
+        }
+    } else {
+        $scriptArgs = $Arguments
+    }
+
+    Write-PsicoLog "Executing script: $Name with args: $($scriptArgs -join ', ')" 2
+
+    try {
+        & $scriptPath @scriptArgs
+    } catch {
+        Write-Host "Error executing script: $($_.Exception.Message)" -ForegroundColor Red
+        Write-PsicoLog "Error executing $Name : $($_.Exception.Message)" 1
+    }
+}
+
+# メインロジック（ラッパーから dot-source される前提。ラッパーがバインドしたパラメータを使用）
+if (-not $Command) {
+    Show-PsicoHelp
+    exit
+}
+
+switch -Regex ($Command) {
+    '^(-h|--help)$' { Show-PsicoHelp }
+    '^(-v|--version)$' { Write-Host "PSICO version 0.1.0" }
+    '^--init$' { Initialize-Psico }
+    '^(-i|--install)$' {
+        if ($Arg1) {
+            Install-PsicoScript $Arg1
+        } else {
+            Write-Host "Error: URL required" -ForegroundColor Red
+        }
+    }
+    '^(-a|--add)$' {
+        if ($Arg1 -and $Arg2) {
+            Add-PsicoScript $Arg1 $Arg2
+        } else {
+            Write-Host "Error: Name and description required" -ForegroundColor Red
+        }
+    }
+    '^(-r|--remove)$' {
+        if ($Arg1) {
+            Remove-PsicoScript $Arg1
+        } else {
+            Write-Host "Error: Script name required" -ForegroundColor Red
+        }
+    }
+    '^(-e|--edit)$' {
+        if ($Arg1) {
+            Edit-PsicoScript $Arg1
+        } else {
+            Write-Host "Error: Script name required" -ForegroundColor Red
+        }
+    }
+    '^(-l|--list)$' {
+        Get-PsicoScriptList $Arg1
+    }
+    '^(-s|--search)$' {
+        if ($Arg1) {
+            Search-PsicoScript $Arg1
+        } else {
+            Write-Host "Error: Search pattern required" -ForegroundColor Red
+        }
+    }
+    '^--info$' {
+        if ($Arg1) {
+            Show-PsicoScriptInfo $Arg1
+        } else {
+            Write-Host "Error: Script name required" -ForegroundColor Red
+        }
+    }
+    '^--test$' {
+        if ($Arg1) {
+            Test-PsicoScript $Arg1
+        } else {
+            Write-Host "Error: Script name required" -ForegroundColor Red
+        }
+    }
+    '^--log$' {
+        if ($Arg1 -match '^-?\d+$') {
+            Set-PsicoLogLevel ([int]$Arg1)
+        } else {
+            Write-Host "Error: Log level must be a number" -ForegroundColor Red
+        }
+    }
+    default {
+        # スクリプト実行
+        $allArgs = @($Arg1) + $Arg2 + $RemainingArgs | Where-Object { $_ }
+        Invoke-PsicoScript $Command $allArgs
+    }
+}

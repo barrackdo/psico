@@ -63,13 +63,24 @@ function Get-ScriptMeta {
     }
 
     $content = Get-Content $ScriptPath -Raw
-    if ($content -match '# @meta\s*({[\s\S]*?})') {
+
+    # # @meta { ... # } ブロックを抽出（コメントアウト済み形式に対応）
+    if ($content -match '# @meta\s*({[\s\S]*?\n# \})') {
         try {
-            return $Matches[1] | ConvertFrom-Json
+            # 各行から '# ' または '#' プレフィックスを除去して JSON を復元
+            $cleanJson = ($Matches[1] -split "`n" | ForEach-Object {
+                if ($_ -match '^#\s?(.*)$') {
+                    $Matches[1]
+                } else {
+                    $_
+                }
+            }) -join "`n"
+            return $cleanJson | ConvertFrom-Json
         } catch {
             return $null
         }
     }
+
     return $null
 }
 
@@ -157,11 +168,11 @@ function Add-PsicoScript {
 
     $template = @"
 # @meta {
-  "version": "0.1.0",
-  "description": "$Description",
-  "tag": [],
-  "args": []
-}
+#   "version": "0.1.0",
+#   "description": "$Description",
+#   "tag": [],
+#   "args": []
+# }
 
 param()
 
@@ -230,8 +241,9 @@ function Get-PsicoScriptList {
 
         # タグフィルタリング
         if ($Tag) {
-            $tagName = $Tag.TrimStart('#')
-            if (-not ($meta.tag -contains $tagName)) {
+            $tagName = $Tag
+            $scriptTags = @($meta.tag)
+            if (-not ($scriptTags -contains $tagName)) {
                 continue
             }
         }
@@ -241,7 +253,7 @@ function Get-PsicoScriptList {
 
         if ($meta -and $meta.tag -and $meta.tag.Count -gt 0) {
             Write-Host "    Tags: " -NoNewline -ForegroundColor Gray
-            Write-Host ($meta.tag | ForEach-Object { "#$_" }) -Separator ", " -ForegroundColor DarkGray
+            Write-Host ($meta.tag | ForEach-Object { "$_" }) -Separator ", " -ForegroundColor DarkGray
         }
     }
 
@@ -421,7 +433,7 @@ EXAMPLES:
     psico --list
     psico --list #utility
     psico --search backup
-    psico --search /test.*/
+    psico --search "/test.*/"
     psico myScript arg1 arg2
 
 "@ -ForegroundColor Cyan
@@ -431,10 +443,11 @@ EXAMPLES:
 function Get-ArgumentTypes {
     param($ArgMeta)
 
-    if ($ArgMeta.type -is [array]) {
-        return $ArgMeta.type
+    $typeValue = $ArgMeta.type
+    if ($typeValue -is [array]) {
+        return @($typeValue | ForEach-Object { [string]$_ })
     } else {
-        return @($ArgMeta.type)
+        return @([string]$typeValue)
     }
 }
 
@@ -446,7 +459,8 @@ function Get-ArgumentTypeString {
     if ($types.Count -gt 1) {
         return ($types -join '|')
     } else {
-        return $types[0]
+        # $types は単要素時 String にアンロールされるため、元の型情報を使う
+        return [string]$ArgMeta.type
     }
 }
 
@@ -468,7 +482,6 @@ function Invoke-PsicoScript {
     $meta = Get-ScriptMeta $scriptPath
     $scriptArgs = @()
 
-    # メタ情報に基づいて引数を処理
     if ($meta -and $meta.args) {
         for ($i = 0; $i -lt $meta.args.Count; $i++) {
             $argMeta = $meta.args[$i]
@@ -476,12 +489,10 @@ function Invoke-PsicoScript {
             if ($i -lt $Arguments.Count) {
                 $scriptArgs += $Arguments[$i]
             } else {
-                # 対話式入力
                 $types = Get-ArgumentTypes $argMeta
                 $typeString = Get-ArgumentTypeString $argMeta
                 $prompt = if ($argMeta.output) { $argMeta.output } else { "Enter argument [$typeString]" }
 
-                # 複数typeの場合は選択させる
                 if ($types.Count -gt 1) {
                     Write-Host $prompt
                     Write-Host "Select input type:" -ForegroundColor Yellow
@@ -489,7 +500,6 @@ function Invoke-PsicoScript {
                         Write-Host "  [$j] $($types[$j])"
                     }
                     $typeSelection = Read-Host "Select type"
-
                     if ($typeSelection -match '^\d+$' -and [int]$typeSelection -lt $types.Count) {
                         $selectedType = $types[[int]$typeSelection]
                         $value = Read-Host "Enter $selectedType value"
@@ -500,25 +510,36 @@ function Invoke-PsicoScript {
                         $scriptArgs += $value
                     }
                 }
-                # enumの場合
-                elseif ($types[0] -eq "enum" -and $argMeta.options) {
-                    Write-Host $prompt
-                    for ($j = 0; $j -lt $argMeta.options.Count; $j++) {
-                        Write-Host "  [$j] $($argMeta.options[$j])"
-                    }
-                    $selection = Read-Host "Select option"
-                    if ($selection -match '^\d+$' -and [int]$selection -lt $argMeta.options.Count) {
-                        $scriptArgs += $argMeta.options[[int]$selection]
+                elseif ([string]$argMeta.type -eq "enum" -or [string]$argMeta.type -eq "Enum" -or ([string]$argMeta.type).ToLower() -eq "enum") {
+                    if ($argMeta.options) {
+                        # 選択肢を表示
+                        Write-Host $prompt
+                        Write-Host "Options:" -ForegroundColor Yellow
+                        for ($j = 0; $j -lt $argMeta.options.Count; $j++) {
+                            Write-Host "  [$j] $($argMeta.options[$j])"
+                        }
+                        $selection = Read-Host "Select option"
+                        if ($selection -match '^\d+$' -and [int]$selection -lt $argMeta.options.Count) {
+                            $scriptArgs += $argMeta.options[[int]$selection]
+                        } elseif ($selection -eq '' -and $argMeta.default) {
+                            $scriptArgs += $argMeta.default
+                        } else {
+                            if ($argMeta.default) {
+                                Write-Host "無効な選択です。デフォルト値 '$($argMeta.default)' を使用します。" -ForegroundColor Yellow
+                                $scriptArgs += $argMeta.default
+                            } else {
+                                $scriptArgs += $selection
+                            }
+                        }
                     } else {
-                        $scriptArgs += $selection
+                        # enumだがoptionsがない場合は通常入力
+                        $scriptArgs += Read-Host $prompt
                     }
                 }
-                # defaultがある場合
                 elseif ($argMeta.default) {
                     $input = Read-Host "$prompt (default: $($argMeta.default))"
                     $scriptArgs += if ($input) { $input } else { $argMeta.default }
                 }
-                # 通常の入力
                 else {
                     $scriptArgs += Read-Host $prompt
                 }
@@ -535,6 +556,20 @@ function Invoke-PsicoScript {
     } catch {
         Write-Host "Error executing script: $($_.Exception.Message)" -ForegroundColor Red
         Write-PsicoLog "Error executing $Name : $($_.Exception.Message)" 1
+    }
+}
+
+# 型変換ヘルパー関数
+function Convert-ArgumentValue {
+    param(
+        [string]$Value,
+        $ArgMeta
+    )
+    $type = if ($ArgMeta.type -is [array]) { $ArgMeta.type[0] } else { $ArgMeta.type }
+    switch ($type) {
+        "int"    { [int]$Value }
+        "datetime" { [datetime]$Value }
+        default  { $Value }
     }
 }
 

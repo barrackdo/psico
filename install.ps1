@@ -60,7 +60,7 @@ Set-Alias psico psico
 "@
 
 Write-Host "--- プロファイル ---" -ForegroundColor Cyan
-Write-Host $profile
+Write-Host $profileTemp
 Write-Host "--- プロファイルに追加するテキスト ---" -ForegroundColor Cyan
 Write-Host $profileContent
 Write-Host "--- 追加後、PowerShell を再起動してください ---" -ForegroundColor Cyan

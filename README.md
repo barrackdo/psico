@@ -17,7 +17,7 @@ PowerShell スクリプトの統合・制御・整理を目的とした CLI ツ�
 ### 簡単インストール
 PowerShell の一行コマンドでインストールできます。
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/barrackdo/psico/raw/main/install.ps1 | iex"
+$profileTemp=$profile;powershell -ExecutionPolicy ByPass -c "irm https://github.com/barrackdo/psico/raw/main/install.ps1 | iex"
 ```
 ※ インストール先は `%LocalAppData%\PSICO` となります。
 

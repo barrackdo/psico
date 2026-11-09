@@ -1,8 +1,8 @@
 # PSICO インストールスクリプト
-# インストール先: $env:LocalAppData\PSICO
+# インストール先: $env:LocalAppData\psico
 # ソース: GitHubリポジトリ (https://github.com/barrackdo/psico) から取得
 
-$installDir = "$env:LocalAppData\PSICO"
+$installDir = "$env:LocalAppData\psico"
 $baseUrl  = "https://raw.githubusercontent.com/barrackdo/psico/main"
 
 function Download-File {
@@ -59,7 +59,8 @@ function psico {
 Set-Alias psico psico
 "@
 
+Write-Host "--- プロファイル ---" -ForegroundColor Cyan
+Write-Host $profile
 Write-Host "--- プロファイルに追加するテキスト ---" -ForegroundColor Cyan
 Write-Host $profileContent
-Write-Host "--- このテキストをプロファイルファイルに追加してください ---" -ForegroundColor Cyan
 Write-Host "--- 追加後、PowerShell を再起動してください ---" -ForegroundColor Cyan

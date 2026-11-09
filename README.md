@@ -1,4 +1,5 @@
 # PSICO
+https://github.com/barrackdo/psico
 
 ## 概要
 PowerShell スクリプトの統合・制御・整理を目的とした CLI ツールです。開発用ディレクトリと実行用ディレクトリを分離し、ユーザーが簡単にスクリプトを管理・実行できます。
@@ -19,14 +20,14 @@ PowerShell の一行コマンドでインストールできます。
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/barrackdo/psico/raw/main/install.ps1 | iex"
 ```
 ※ インストール先は `%LocalAppData%\PSICO` となります。
-GitHubリポジトリ: https://github.com/barrackdo/psico
-
-インストール完了後、出力されるプロファイル追記用テキストを PowerShell のプロファイル (`$PROFILE`) に追加し、再起動してください。
 
 ### 手動インストール
-1. `PSICO` ディレクトリを作成
+1. `psico` ディレクトリを作成
 2. `psico.ps1` と `core\psico_core.ps1` を同ディレクトリにコピー
-3. PowerShell のプロファイル (`$PROFILE`) に以下を追加し、再読み込み (`. $PROFILE`)
+
+### プロファイルへの登録
+インストールの完了後にプロファイルへ関数を手動で書き込むと `psico` コマンドとして簡単に使えるようになります。
+- PowerShell のプロファイル (`$PROFILE`) に以下を追加し、再読み込み (`. $PROFILE`)
    - `<PSICO ディレクトリ>` は環境に合わせて適宜修正してください
 
 ```powershell

@@ -61,6 +61,8 @@ Set-Alias psico "$installDir\psico.ps1"
 
 Write-Host "--- プロファイル ---" -ForegroundColor Cyan
 Write-Host $profile
+Write-Host 
 Write-Host "--- プロファイルに追加するテキスト ---" -ForegroundColor Cyan
 Write-Host $profileContent
+Write-Host 
 Write-Host "--- 追加後、PowerShell を再起動してください ---" -ForegroundColor Cyan

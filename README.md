@@ -15,11 +15,11 @@ PowerShell スクリプトの統合・制御・整理を目的とした CLI ツ�
 ## インストール
 
 ### 簡単インストール
-PowerShell の一行コマンドでインストールできます。
+PowerShell で以下のコマンドを実行してください。
 ```powershell
 irm https://github.com/barrackdo/psico/raw/main/install.ps1 | iex
 ```
-※ インストール先は `%LocalAppData%\PSICO` となります。
+※ インストール先は `%LocalAppData%\psico` となります。
 
 ### 手動インストール
 1. `psico` ディレクトリを作成

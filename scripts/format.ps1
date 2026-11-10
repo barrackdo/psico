@@ -1,5 +1,5 @@
 # @meta {
-#   "version": "0.1.0",
+#   "version": "0.1.1",
 #   "description": "テキストを様々な形式で出力",
 #   "tag": ["sample", "format"],
 #   "args": [

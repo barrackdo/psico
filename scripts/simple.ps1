@@ -1,5 +1,5 @@
 # @meta {
-#   "version": "0.1.0",
+#   "version": "0.1.1",
 #   "description": "文字列処理のデモ",
 #   "tag": ["sample", "string"],
 #   "args": [

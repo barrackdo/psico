@@ -1,5 +1,5 @@
 # @meta {
-#   "version": "0.1.0",
+#   "version": "0.1.1",
 #   "description": "簡単な計算を実行",
 #   "tag": ["sample", "math"],
 #   "args": [

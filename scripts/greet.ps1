@@ -1,5 +1,5 @@
 # @meta {
-#   "version": "0.1.0",
+#   "version": "0.1.1",
 #   "description": "挨拶を表示するスクリプト",
 #   "tag": ["sample", "greeting"],
 #   "args": [

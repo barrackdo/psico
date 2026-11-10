@@ -431,7 +431,7 @@ OPTIONS:
     --add, -a <name> <description>  Create new script
     --remove, -r <name>             Remove script
     --edit, -e <name>               Edit script
-    --list, -l [tag]               List all scripts (optionally filter by tag)
+    --list, -l [tag]                List all scripts (optionally filter by tag)
     --search, -s <pattern>          Search scripts (wildcard or regex)
     --info <name>                   Show script metadata
     --test <name>                   Run script without arguments to verify it executes without errors
@@ -500,7 +500,8 @@ function Invoke-PsicoScript {
             $argMeta = $meta.args[$i]
 
             if ($i -lt $Arguments.Count) {
-                $scriptArgs += $Arguments[$i]
+                $rawValue = $Arguments[$i]
+                $scriptArgs += Convert-ArgumentValue $rawValue $argMeta
             } else {
                 $types = Get-ArgumentTypes $argMeta
                 $typeString = Get-ArgumentTypeString $argMeta
@@ -516,11 +517,14 @@ function Invoke-PsicoScript {
                     if ($typeSelection -match '^\d+$' -and [int]$typeSelection -lt $types.Count) {
                         $selectedType = $types[[int]$typeSelection]
                         $value = Read-Host "Enter $selectedType value"
-                        $scriptArgs += $value
+                        # 一時的な ArgMeta を作って変換
+                        $tempMeta = @{ type = $selectedType }
+                        $scriptArgs += Convert-ArgumentValue $value $tempMeta
                     } else {
                         Write-Host "Invalid selection, using first type: $($types[0])" -ForegroundColor Yellow
                         $value = Read-Host "Enter $($types[0]) value"
-                        $scriptArgs += $value
+                        $tempMeta = @{ type = $types[0] }
+                        $scriptArgs += Convert-ArgumentValue $value $tempMeta
                     }
                 }
                 elseif ([string]$argMeta.type -eq "enum" -or [string]$argMeta.type -eq "Enum" -or ([string]$argMeta.type).ToLower() -eq "enum") {
@@ -551,10 +555,12 @@ function Invoke-PsicoScript {
                 }
                 elseif ($argMeta.default) {
                     $input = Read-Host "$prompt (default: $($argMeta.default))"
-                    $scriptArgs += if ($input) { $input } else { $argMeta.default }
+                    $value = if ($input) { $input } else { $argMeta.default }
+                    $scriptArgs += Convert-ArgumentValue $value $argMeta
                 }
                 else {
-                    $scriptArgs += Read-Host $prompt
+                    $value = Read-Host $prompt
+                    $scriptArgs += Convert-ArgumentValue $value $argMeta
                 }
             }
         }
@@ -580,9 +586,39 @@ function Convert-ArgumentValue {
     )
     $type = if ($ArgMeta.type -is [array]) { $ArgMeta.type[0] } else { $ArgMeta.type }
     switch ($type) {
-        "int"    { [int]$Value }
-        "datetime" { [datetime]$Value }
-        default  { $Value }
+        "int"       { [int]$Value }
+        "double"    { [double]$Value }
+        "decimal"   { [decimal]$Value }
+        "bool"      {
+            if ($Value -match '^(true|false|yes|no|1|0)$') { [bool]$Value }
+            else { throw "Invalid bool value: $Value (use true/false, yes/no, 1/0)" }
+        }
+        "url"       {
+            try {
+                $uri = [System.Uri]$Value
+                if (-not $uri.IsAbsoluteUri) { throw "Not absolute" }
+                $uri.AbsoluteUri
+            } catch {
+                throw "Invalid URL: $Value"
+            }
+        }
+        "file"      {
+            $full = (Resolve-Path $Value -ErrorAction Stop).Path
+            if (-not (Test-Path $full -PathType Leaf)) { throw "File not found: $full" }
+            $full
+        }
+        "folder"    {
+            $full = (Resolve-Path $Value -ErrorAction Stop).Path
+            if (-not (Test-Path $full -PathType Container)) { throw "Directory not found: $full" }
+            $full
+        }
+        "directory" { # folder のエイリアス
+            $full = (Resolve-Path $Value -ErrorAction Stop).Path
+            if (-not (Test-Path $full -PathType Container)) { throw "Directory not found: $full" }
+            $full
+        }
+        "datetime"  { [datetime]$Value }
+        default     { $Value }
     }
 }
 

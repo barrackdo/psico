@@ -121,35 +121,72 @@ function Initialize-Psico {
 
 # --install: スクリプトインストール
 function Install-PsicoScript {
-    param([string]$Url)
+    param([string]$Source)
 
-    Write-PsicoLog "Installing from: $Url" 1
+    Write-PsicoLog "Installing from: $Source" 1
 
-    $tempFile = Join-Path $env:TEMP "psico_download_$(Get-Date -Format 'yyyyMMddHHmmss').tmp"
+    # URL またはローカルファイルパスかを判定
+    $isUrl = $Source -match '^https?://'
+
+    $tempFile = Join-Path $env:TEMP "psico_install_$(Get-Date -Format 'yyyyMMddHHmmss').tmp"
+    $fileName = ""
+    $sourcePath = ""
 
     try {
-        Invoke-WebRequest -Uri $Url -OutFile $tempFile
+        if ($isUrl) {
+            # URL の妥当性チェック
+            try {
+                $uri = [System.Uri]$Source
+                if (-not $uri.IsAbsoluteUri) { throw "Not absolute" }
+            } catch {
+                Write-Host "Error: Invalid URL: $Source" -ForegroundColor Red
+                return
+            }
 
-        # テキストファイルか確認
-        try {
-            $null = Get-Content $tempFile -ErrorAction Stop
-        } catch {
-            Write-Host "Error: Downloaded file is not a valid text file" -ForegroundColor Red
+            # ダウンロード
+            try {
+                Invoke-WebRequest -Uri $Source -OutFile $tempFile
+            } catch {
+                Write-Host "Error: Failed to download from URL - $($_.Exception.Message)" -ForegroundColor Red
+                return
+            }
+
+            $fileName = [System.IO.Path]::GetFileName($uri.LocalPath)
+            if (-not $fileName -or $fileName -eq '') {
+                $fileName = "downloaded_script.ps1"
+            }
+        } else {
+            # ローカルファイルパスの存在チェック
+            $sourcePath = (Resolve-Path $Source -ErrorAction SilentlyContinue).Path
+            if (-not $sourcePath -or -not (Test-Path $sourcePath -PathType Leaf)) {
+                Write-Host "Error: File not found: $Source" -ForegroundColor Red
+                return
+            }
+
+            # テキストファイルか確認
+            try {
+                $null = Get-Content $sourcePath -ErrorAction Stop
+            } catch {
+                Write-Host "Error: File is not a valid text file: $Source" -ForegroundColor Red
+                return
+            }
+
+            # 一時ファイルにコピー
+            Copy-Item $sourcePath $tempFile -Force
+            $fileName = [System.IO.Path]::GetFileName($sourcePath)
+        }
+
+        # 拡張子チェック
+        $extension = [System.IO.Path]::GetExtension($fileName)
+        if ($extension -ne '.ps1' -and $extension -ne '.psm1') {
+            Write-Host "Error: File must be .ps1 or .psm1 (got: $extension)" -ForegroundColor Red
             Remove-Item $tempFile -Force
             return
         }
 
-        $fileName = [System.IO.Path]::GetFileName($Url)
-        $extension = [System.IO.Path]::GetExtension($fileName)
-
         $destination = switch ($extension) {
             ".ps1" { Join-Path $script:ScriptsDir $fileName }
             ".psm1" { Join-Path $script:ModulesDir $fileName }
-            default {
-                Write-Host "Error: File must be .ps1 or .psm1" -ForegroundColor Red
-                Remove-Item $tempFile -Force
-                return
-            }
         }
 
         Move-Item $tempFile $destination -Force
@@ -157,7 +194,7 @@ function Install-PsicoScript {
         Write-PsicoLog "Installed: $fileName" 1
 
     } catch {
-        Write-Host "Error: Failed to download or install - $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Error: Failed to install - $($_.Exception.Message)" -ForegroundColor Red
         if (Test-Path $tempFile) {
             Remove-Item $tempFile -Force
         }
@@ -427,7 +464,7 @@ USAGE:
 
 OPTIONS:
     --init                          Initialize PSICO structure
-    --install, -i <url>             Install script from URL (.ps1 or .psm1)
+    --install, -i <url|path>        Install script from URL or local file (.ps1 or .psm1)
     --add, -a <name> <description>  Create new script
     --remove, -r <name>             Remove script
     --edit, -e <name>               Edit script

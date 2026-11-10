@@ -379,7 +379,7 @@ function Test-PsicoScript {
     }
 
     Write-Host "Testing script: $Name" -ForegroundColor Cyan
-    Write-Host "Note: This is a test run with mock arguments" -ForegroundColor Yellow
+    Write-Host "Note: Runs script without arguments to verify it executes without errors" -ForegroundColor Yellow
     Write-Host ("=" * 60)
 
     try {
@@ -434,7 +434,7 @@ OPTIONS:
     --list, -l [tag]               List all scripts (optionally filter by tag)
     --search, -s <pattern>          Search scripts (wildcard or regex)
     --info <name>                   Show script metadata
-    --test <name>                   Test run script
+    --test <name>                   Run script without arguments to verify it executes without errors
     --log <level>                   Set log level (0-2, or -1 to delete logs)
     --help, -h                      Show this help
     --version, -v                   Show version

@@ -8,6 +8,18 @@
     PowerShellスクリプトの統合・制御・整理を目的としたCLI補助ツール（コアモジュール）
 #>
 
+# バージョン取得（ファイル先頭の # {"version": "x.y.z"} から読み取り）
+function Get-PsicoVersion {
+    $corePath = Join-Path $script:CoreDir "psico_core.ps1"
+    if (Test-Path $corePath) {
+        $firstLine = Get-Content $corePath -TotalCount 1
+        if ($firstLine -match '"version"\s*:\s*"([^"]+)"') {
+            return $Matches[1]
+        }
+    }
+    return "0.1.0"
+}
+
 # 設定読み込み
 function Get-PsicoConfig {
     if (Test-Path $script:ConfigFile) {
@@ -404,22 +416,23 @@ function Set-PsicoLogLevel {
 
 # --help: ヘルプ表示
 function Show-PsicoHelp {
+    $ver = Get-PsicoVersion
     Write-Host @"
 
-PowerShell Script CLI Tool v0.1.0
+PowerShell Script CLI Tool v$ver
 
 USAGE:
-    psico [command] [options]
+    psico [options] [args...]
     psico <script-name> [args...]
 
-COMMANDS:
+OPTIONS:
     --init                          Initialize PSICO structure
     --install, -i <url>             Install script from URL (.ps1 or .psm1)
     --add, -a <name> <description>  Create new script
     --remove, -r <name>             Remove script
     --edit, -e <name>               Edit script
-    --list, -l [#tag]               List all scripts (optionally filter by tag)
-    --search, -s <pattern>          Search scripts (wildcard or /regex/)
+    --list, -l [tag]               List all scripts (optionally filter by tag)
+    --search, -s <pattern>          Search scripts (wildcard or regex)
     --info <name>                   Show script metadata
     --test <name>                   Test run script
     --log <level>                   Set log level (0-2, or -1 to delete logs)
@@ -431,9 +444,9 @@ EXAMPLES:
     psico --add myScript "My useful script"
     psico --install https://example.com/script.ps1
     psico --list
-    psico --list #utility
-    psico --search backup
-    psico --search "/test.*/"
+    psico --list utility
+    psico --search "sample"
+    psico --search "/sample/"
     psico myScript arg1 arg2
 
 "@ -ForegroundColor Cyan
@@ -581,7 +594,7 @@ if (-not $Command) {
 
 switch -Regex ($Command) {
     '^(-h|--help)$' { Show-PsicoHelp }
-    '^(-v|--version)$' { Write-Host "PSICO version 0.1.0" }
+    '^(-v|--version)$' { Write-Host "PSICO version $(Get-PsicoVersion)" }
     '^--init$' { Initialize-Psico }
     '^(-i|--install)$' {
         if ($Arg1) {

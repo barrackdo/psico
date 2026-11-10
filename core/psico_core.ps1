@@ -77,6 +77,7 @@ function Get-ScriptMeta {
     $content = Get-Content $ScriptPath -Raw
 
     # # @meta { ... # } ブロックを抽出（コメントアウト済み形式に対応）
+    $meta = $null
     if ($content -match '# @meta\s*({[\s\S]*?\n# \})') {
         try {
             # 各行から '# ' または '#' プレフィックスを除去して JSON を復元
@@ -87,13 +88,87 @@ function Get-ScriptMeta {
                     $_
                 }
             }) -join "`n"
-            return $cleanJson | ConvertFrom-Json
+            $meta = $cleanJson | ConvertFrom-Json
         } catch {
-            return $null
+            $meta = $null
         }
     }
 
-    return $null
+    # param() ブロックからデフォルト値を抽出
+    $paramDefaults = Get-ParamDefaults $content
+
+    # メタデータの args にデフォルト値をマージ（メタ側が優先、無い場合は param() から補完）
+    if ($meta -and $meta.args -and $paramDefaults) {
+        foreach ($arg in $meta.args) {
+            if (-not $arg.PSObject.Properties.Match('default') -or $null -eq $arg.default) {
+                if ($paramDefaults.ContainsKey($arg.name)) {
+                    $arg.default = $paramDefaults[$arg.name]
+                }
+            }
+        }
+    }
+
+    return $meta
+}
+
+# param() ブロックからデフォルト値を抽出
+function Get-ParamDefaults {
+    param([string]$Content)
+
+    # param(...) ブロックを探す
+    if ($Content -match 'param\s*\(([\s\S]*?)\)') {
+        $paramBlock = $Matches[1]
+        $defaults = @{}
+
+        # 各行を解析: [type]$name = value
+        $paramBlock -split "`n" | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -match '^\[?\w+\]?\$(\w+)\s*=\s*(.+)$') {
+                $name = $Matches[1]
+                $value = $Matches[2].Trim().TrimEnd(',')
+                # 値を適切な型に変換して保存
+                $defaults[$name] = Parse-DefaultValue $value
+            }
+        }
+
+        return $defaults
+    }
+
+    return @{}
+}
+
+# デフォルト値文字列を適切な型にパース
+function Parse-DefaultValue {
+    param([string]$Value)
+
+    $Value = $Value.Trim()
+
+    # ブーリアン
+    if ($Value -match '^\$?(true|false)$') {
+        return [bool]::Parse($Value.TrimStart('$'))
+    }
+
+    # 数値（int, double, decimal）
+    if ($Value -match '^\d+$') {
+        return [int]$Value
+    }
+    if ($Value -match '^\d+\.\d+$') {
+        return [double]$Value
+    }
+    if ($Value -match '^\d+\.\d+[dD]$') {
+        return [decimal]$Value.TrimEnd('d','D')
+    }
+
+    # 文字列（クォート除去）
+    if ($Value -match '^["\'](.*)["\']$') {
+        return $Matches[1]
+    }
+    if ($Value -match '^@\("(.*)"\)$') {
+        return $Matches[1]
+    }
+
+    # 配列・ハッシュテーブル等は文字列のまま返す
+    return $Value
 }
 
 # --init: 初期構成生成
@@ -548,7 +623,9 @@ function Invoke-PsicoScript {
                     Write-Host $prompt
                     Write-Host "Select input type:" -ForegroundColor Yellow
                     for ($j = 0; $j -lt $types.Count; $j++) {
-                        Write-Host "  [$j] $($types[$j])"
+                        $typeName = $types[$j]
+                        $defaultMarker = if ($argMeta.default) { " (default: $($argMeta.default))" } else { "" }
+                        Write-Host "  [$j] $typeName$defaultMarker"
                     }
                     $typeSelection = Read-Host "Select type"
                     if ($typeSelection -match '^\d+$' -and [int]$typeSelection -lt $types.Count) {
@@ -570,7 +647,9 @@ function Invoke-PsicoScript {
                         Write-Host $prompt
                         Write-Host "Options:" -ForegroundColor Yellow
                         for ($j = 0; $j -lt $argMeta.options.Count; $j++) {
-                            Write-Host "  [$j] $($argMeta.options[$j])"
+                            $opt = $argMeta.options[$j]
+                            $defaultMarker = if ($argMeta.default -and $opt -eq $argMeta.default) { " (default)" } else { "" }
+                            Write-Host "  [$j] $opt$defaultMarker"
                         }
                         $selection = Read-Host "Select option"
                         if ($selection -match '^\d+$' -and [int]$selection -lt $argMeta.options.Count) {

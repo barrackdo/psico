@@ -1,37 +1,59 @@
 # @meta {
 #   "version": "0.1.1",
-#   "description": "挨拶を表示するスクリプト",
-#   "tag": ["sample", "greeting"],
+#   "description": "多言語挨拶ジェネレータ（string, enum, bool のデモ）",
+#   "tag": ["sample", "greeting", "types"],
 #   "args": [
 #     {
 #       "name": "name",
-#       "type": "enum",
-#       "output": "名前を選択",
-#       "options": ["Alice", "Bob", "Charlie"],
-#       "default": "Alice"
+#       "type": "string",
+#       "output": "名前を入力"
 #     },
 #     {
-#       "name": "greeting",
+#       "name": "lang",
 #       "type": "enum",
-#       "output": "挨拶の種類を選択",
-#       "options": ["Hello", "Hi", "Hey", "Greetings"],
-#       "default": "Hello"
+#       "output": "言語を選択",
+#       "options": ["en", "ja", "es", "fr", "de", "zh", "ko"]
 #     },
 #     {
-#       "name": "times",
-#       "type": "int",
-#       "output": "繰り返し回数",
-#       "default": 1
+#       "name": "style",
+#       "type": "enum",
+#       "output": "スタイルを選択",
+#       "options": ["formal", "casual", "friendly"]
+#     },
+#     {
+#       "name": "showAll",
+#       "type": "bool",
+#       "output": "全言語・全スタイルを表示するか"
 #     }
 #   ]
 # }
 
 param(
-    [string]$name = "Alice",
-    [string]$greeting = "Hello",
-    [int]$times = 1
+    [string]$name = "World",
+    [string]$lang = "en",
+    [string]$style = "friendly",
+    [bool]$showAll = $false
 )
 
-for ($i = 1; $i -le $times; $i++) {
-    Write-Host "$greeting, $name! (#$i)"
+$greetings = @{
+    en = @{ formal = "Good day"; casual = "Hello"; friendly = "Hi" }
+    ja = @{ formal = "こんにちは"; casual = "やあ"; friendly = "こんにちは！" }
+    es = @{ formal = "Buenos días"; casual = "Hola"; friendly = "¡Hola!" }
+    fr = @{ formal = "Bonjour"; casual = "Salut"; friendly = "Salut !" }
+    de = @{ formal = "Guten Tag"; casual = "Hallo"; friendly = "Hallo!" }
+    zh = @{ formal = "您好"; casual = "你好"; friendly = "你好呀！" }
+    ko = @{ formal = "안녕하십니까"; casual = "안녕"; friendly = "안녕하세요!" }
+}
+
+if ($showAll) {
+    Write-Host "=== All Greetings for '$name' ===" -ForegroundColor Cyan
+    foreach ($l in $greetings.Keys) {
+        Write-Host "`n[$l]" -ForegroundColor Yellow
+        foreach ($s in $greetings[$l].Keys) {
+            Write-Host "  $s: $($greetings[$l][$s]), $name!"
+        }
+    }
+} else {
+    $greeting = $greetings[$lang][$style] ?? $greetings.en.friendly
+    Write-Host "$greeting, $name!"
 }

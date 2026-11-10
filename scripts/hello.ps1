@@ -1,46 +1,42 @@
 # @meta {
 #   "version": "0.1.1",
-#   "description": "多言語挨拶ジェネレータ",
-#   "tag": ["sample", "greeting"],
+#   "description": "挨拶を表示するスクリプト（enum, int, bool のデモ）",
+#   "tag": ["sample", "greeting", "types"],
 #   "args": [
 #     {
 #       "name": "name",
-#       "type": "string",
-#       "output": "名前を入力",
-#       "default": "World"
+#       "type": "enum",
+#       "output": "名前を選択",
+#       "options": ["Alice", "Bob", "Charlie"]
 #     },
 #     {
-#       "name": "lang",
+#       "name": "greeting",
 #       "type": "enum",
-#       "output": "言語を選択",
-#       "options": ["en", "ja", "es", "fr", "de", "zh", "ko"],
-#       "default": "en"
+#       "output": "挨拶の種類を選択",
+#       "options": ["Hello", "Hi", "Hey", "Greetings"]
 #     },
 #     {
-#       "name": "style",
-#       "type": "enum",
-#       "output": "スタイルを選択",
-#       "options": ["formal", "casual", "friendly"],
-#       "default": "friendly"
+#       "name": "times",
+#       "type": "int",
+#       "output": "繰り返し回数"
+#     },
+#     {
+#       "name": "excited",
+#       "type": "bool",
+#       "output": "興奮気味にするか（! を増やす）"
 #     }
 #   ]
 # }
 
 param(
-    [string]$name = "World",
-    [string]$lang = "en",
-    [string]$style = "friendly"
+    [string]$name = "Alice",
+    [string]$greeting = "Hello",
+    [int]$times = 1,
+    [bool]$excited = $false
 )
 
-$greetings = @{
-    en = @{ formal = "Good day"; casual = "Hello"; friendly = "Hi" }
-    ja = @{ formal = "こんにちは"; casual = "やあ"; friendly = "こんにちは！" }
-    es = @{ formal = "Buenos días"; casual = "Hola"; friendly = "¡Hola!" }
-    fr = @{ formal = "Bonjour"; casual = "Salut"; friendly = "Salut !" }
-    de = @{ formal = "Guten Tag"; casual = "Hallo"; friendly = "Hallo!" }
-    zh = @{ formal = "您好"; casual = "你好"; friendly = "你好呀！" }
-    ko = @{ formal = "안녕하십니까"; casual = "안녕"; friendly = "안녕하세요!" }
-}
+$suffix = if ($excited) { "!!!" } else { "!" }
 
-$greeting = $greetings[$lang][$style] ?? $greetings.en.friendly
-Write-Host "$greeting, $name!"
+for ($i = 1; $i -le $times; $i++) {
+    Write-Host "$greeting, $name$suffix (#$i)"
+}

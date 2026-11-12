@@ -1,4 +1,4 @@
-# {"version": "0.1.1"}
+# {"version": "0.1.2"}
 
 <#
 .SYNOPSIS
@@ -8,23 +8,7 @@
     Thin wrapper that handles zone identifier unblocking, sets up script paths,
     and loads the core module. All actual command processing is delegated to
     core\psico_core.ps1.
-
-.PARAMETER Command
-    Command to execute (short option or script name).
-.PARAMETER Arg1
-    First positional argument.
-.PARAMETER Arg2
-    Second positional argument.
-.PARAMETER RemainingArgs
-    Remaining arguments passed to the target script.
 #>
-
-param(
-    [string]$Command,
-    [string]$Arg1,
-    [string]$Arg2,
-    [string[]]$RemainingArgs
-)
 
 # 【重要】ゾーン識別子（Zone.Identifier）の即時解除
 $myPath = $MyInvocation.MyCommand.Path
@@ -43,93 +27,102 @@ $script:ConfigFile  = Join-Path $script:PsicoRoot "config.json"
 # config.json の初期化（まだの場合のみ）
 if (-not (Test-Path $script:ConfigFile)) {
     $defaultConfig = @{
-        editor   = "notepad.exe"
-        logLevel = 2
+        editor            = "notepad.exe"
+        logLevel          = 2
+        completionSilent  = $true
     }
     $defaultConfig | ConvertTo-Json | Set-Content $script:ConfigFile -Encoding UTF8
 }
 
-# --- 長オプション・短オプションの手動パース ($args から直接) ---
-# PowerShell の [CmdletBinding()] + [switch] では --install が $long_install に
-# バインドされず、$Install ($install) と衝突するため、生の $args を
-# 自分で走査してコマンドと引数を確定する。
+# --- 生の引数 ($args) を直接パース ---
+# param ブロックを使わないことで $args に全引数が残るようにする
 $rawArgs = @($args)
-$parsedCommand = $null
-$parsedArg1    = $null
-$parsedArg2    = $null
+
+# パース結果
+$Command       = $null
+$Arg1          = $null
+$Arg2          = $null
+$RemainingArgs = @()
+
+# 既知オプションの定義（引数を取るもの）
+$optionsWithArgs = @(
+    '--install', '-i',
+    '--list', '-l',
+    '--add', '-a',
+    '--remove', '-r',
+    '--edit', '-e',
+    '--search', '-s',
+    '--info',
+    '--test',
+    '--log'
+)
+
+# 既知オプション（引数を取らないもの）
+$optionsNoArgs = @(
+    '--init',
+    '--version', '-v',
+    '--help', '-h',
+    '--completion'
+)
 
 for ($i = 0; $i -lt $rawArgs.Count; $i++) {
     $arg = $rawArgs[$i]
 
-    switch -Regex ($arg) {
-        '^(--install|-i)$' {
-            $parsedCommand = '-i'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
+    # 既知オプション（引数あり）の処理
+    if ($optionsWithArgs -contains $arg) {
+        if (-not $Command) { $Command = $arg }
+        # 次の引数がオプションでなければ値として取得
+        if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
+            if (-not $Arg1) { $Arg1 = $rawArgs[++$i] }
+            elseif (-not $Arg2) { $Arg2 = $rawArgs[++$i] }
+            else { $RemainingArgs += $rawArgs[++$i] }
         }
-        '^(--list|-l)$' {
-            $parsedCommand = '-l'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
+        continue
+    }
+
+    # 既知オプション（引数なし）の処理
+    if ($optionsNoArgs -contains $arg) {
+        if (-not $Command) { $Command = $arg }
+        continue
+    }
+
+    # --add は引数を2つ取る特殊ケース
+    if ($arg -eq '--add' -or $arg -eq '-a') {
+        if (-not $Command) { $Command = $arg }
+        if (($i + 1) -lt $rawArgs.Count) {
+            if (-not $Arg1) { $Arg1 = $rawArgs[++$i] }
         }
-        '^(--version|-v)$' { $parsedCommand = '-v' }
-        '^(--help|-h)$'    { $parsedCommand = '-h' }
-        '^--init$'         { $parsedCommand = '--init' }
-        '^(--add|-a)$' {
-            $parsedCommand = '-a'
-            if (($i + 1) -lt $rawArgs.Count) { $parsedArg1 = $rawArgs[++$i] }
-            if (($i + 1) -lt $rawArgs.Count) { $parsedArg2 = $rawArgs[++$i] }
+        if (($i + 1) -lt $rawArgs.Count) {
+            if (-not $Arg2) { $Arg2 = $rawArgs[++$i] }
         }
-        '^(--remove|-r)$' {
-            $parsedCommand = '-r'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
-        }
-        '^(--edit|-e)$' {
-            $parsedCommand = '-e'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
-        }
-        '^(--search|-s)$' {
-            $parsedCommand = '-s'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
-        }
-        '^--info$' {
-            $parsedCommand = '--info'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
-        }
-        '^--test$' {
-            $parsedCommand = '--test'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
-        }
-        '^--log$' {
-            $parsedCommand = '--log'
-            if (($i + 1) -lt $rawArgs.Count -and $rawArgs[$i + 1] -notmatch '^-') {
-                $parsedArg1 = $rawArgs[++$i]
-            }
-        }
+        continue
+    }
+
+    # 未知の引数 = 位置引数（スクリプト名またはスクリプトへの引数）
+    if (-not $Command -and $arg -notmatch '^-') {
+        $Command = $arg
+    } elseif ($Command -and $Command -notmatch '^-') {
+        # スクリプト実行モードの場合、残りはすべてスクリプト引数
+        if (-not $Arg1) { $Arg1 = $arg }
+        elseif (-not $Arg2) { $Arg2 = $arg }
+        else { $RemainingArgs += $arg }
+    } else {
+        # オプション風だが未知のものは位置引数として扱う
+        if (-not $Arg1) { $Arg1 = $arg }
+        elseif (-not $Arg2) { $Arg2 = $arg }
+        else { $RemainingArgs += $arg }
     }
 }
 
-# パース結果を適用（コマンドライン位置パラメータより $args パースを優先）
-if ($parsedCommand) { $Command = $parsedCommand }
-if ($parsedArg1 -and [string]::IsNullOrEmpty($Arg1)) { $Arg1 = $parsedArg1 }
-if ($parsedArg2 -and [string]::IsNullOrEmpty($Arg2)) { $Arg2 = $parsedArg2 }
-
 # デフォルト値のフォールバック
-$Arg1          = $Arg1          ?? $null
-$Arg2          = $Arg2          ?? $null
+$Arg1          = if ([string]::IsNullOrEmpty($Arg1)) { $null } else { $Arg1 }
+$Arg2          = if ([string]::IsNullOrEmpty($Arg2)) { $null } else { $Arg2 }
 $RemainingArgs = $RemainingArgs ?? @()
+
+# スクリプト名がパス形式の場合、ベース名のみ抽出
+if ($Command -and $Command -notmatch '^-' -and ($Command -like '*.ps1' -or $Command -like '*\*' -or $Command -like '*/')) {
+    $Command = [System.IO.Path]::GetFileNameWithoutExtension($Command)
+}
 
 # コアモジュールの読み込み（dot-source により関数とメインロジックを読み込む）
 $corePath = Join-Path $script:CoreDir "psico_core.ps1"

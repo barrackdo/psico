@@ -1,4 +1,4 @@
-# {"version": "0.1.1"}
+# {"version": "0.1.2"}
 
 <#
 .SYNOPSIS
@@ -7,6 +7,45 @@
 .DESCRIPTION
     PowerShellスクリプトの統合・制御・整理を目的としたCLI補助ツール（コアモジュール）
 #>
+
+# パス初期化（ラッパー未経由で dot-source された場合のフォールバック）
+if (-not (Test-Path Variable:script:PsicoRoot)) {
+    $coreScriptPath = $MyInvocation.MyCommand.Path
+    $script:CoreDir     = Split-Path -Parent $coreScriptPath
+    $script:PsicoRoot   = Split-Path -Parent $script:CoreDir
+    $script:ScriptsDir  = Join-Path $script:PsicoRoot "scripts"
+    $script:ModulesDir  = Join-Path $script:PsicoRoot "modules"
+    $script:LogsDir     = Join-Path $script:PsicoRoot "logs"
+    $script:ConfigFile  = Join-Path $script:PsicoRoot "config.json"
+}
+
+# 共通モジュール読み込み
+. (Join-Path $script:CoreDir "psico_shared.ps1")
+
+# 補完状態追跡用グローバル変数（初回のみ初期化）
+if (-not (Test-Path Variable:global:_PsicoCompletionEnabled)) {
+    $global:_PsicoCompletionEnabled = $false
+}
+
+# 補完モジュール読み込み（トップレベルで dot-source して global: 関数を確実に定義）
+. (Join-Path $script:CoreDir "psico_completion.ps1")
+
+# --completion: 補完機能を有効化（引数なし）
+function Manage-PsicoCompletion {
+    # 引数があれば無視して警告
+    if ($Arg1) {
+        Write-Host "Warning: 'psico --completion' takes no arguments. Enabling completion..." -ForegroundColor Yellow
+    }
+    # config.json の silent 設定を尊重
+    $silent = $false
+    try {
+        $config = Get-PsicoConfig
+        if ($config.completionSilent -eq $true) {
+            $silent = $true
+        }
+    } catch { }
+    Enable-PsicoCompletion -Silent:$silent
+}
 
 # バージョン取得（ファイル先頭の # {"version": "x.y.z"} から読み取り）
 function Get-PsicoVersion {
@@ -66,110 +105,6 @@ function Write-PsicoLog {
     }
 }
 
-# メタ情報抽出
-function Get-ScriptMeta {
-    param([string]$ScriptPath)
-
-    if (-not (Test-Path $ScriptPath)) {
-        return $null
-    }
-
-    $content = Get-Content $ScriptPath -Raw
-
-    # # @meta { ... # } ブロックを抽出（コメントアウト済み形式に対応）
-    $meta = $null
-    if ($content -match '# @meta\s*({[\s\S]*?\n# \})') {
-        try {
-            # 各行から '# ' または '#' プレフィックスを除去して JSON を復元
-            $cleanJson = ($Matches[1] -split "`n" | ForEach-Object {
-                if ($_ -match '^#\s?(.*)$') {
-                    $Matches[1]
-                } else {
-                    $_
-                }
-            }) -join "`n"
-            $meta = $cleanJson | ConvertFrom-Json
-        } catch {
-            $meta = $null
-        }
-    }
-
-    # param() ブロックからデフォルト値を抽出
-    $paramDefaults = Get-ParamDefaults $content
-
-    # メタデータの args にデフォルト値をマージ（メタ側が優先、無い場合は param() から補完）
-    if ($meta -and $meta.args -and $paramDefaults) {
-        foreach ($arg in $meta.args) {
-            if (-not $arg.PSObject.Properties.Match('default') -or $null -eq $arg.default) {
-                if ($paramDefaults.ContainsKey($arg.name)) {
-                    $arg.default = $paramDefaults[$arg.name]
-                }
-            }
-        }
-    }
-
-    return $meta
-}
-
-# param() ブロックからデフォルト値を抽出
-function Get-ParamDefaults {
-    param([string]$Content)
-
-    # param(...) ブロックを探す
-    if ($Content -match 'param\s*\(([\s\S]*?)\)') {
-        $paramBlock = $Matches[1]
-        $defaults = @{}
-
-        # 各行を解析: [type]$name = value
-        $paramBlock -split "`n" | ForEach-Object {
-            $line = $_.Trim()
-            if ($line -match '^\[?\w+\]?\$(\w+)\s*=\s*(.+)$') {
-                $name = $Matches[1]
-                $value = $Matches[2].Trim().TrimEnd(',')
-                # 値を適切な型に変換して保存
-                $defaults[$name] = Parse-DefaultValue $value
-            }
-        }
-
-        return $defaults
-    }
-
-    return @{}
-}
-
-# デフォルト値文字列を適切な型にパース
-function Parse-DefaultValue {
-    param([string]$Value)
-
-    $Value = $Value.Trim()
-
-    # ブーリアン
-    if ($Value -match '^\$?(true|false)$') {
-        return [bool]::Parse($Value.TrimStart('$'))
-    }
-
-    # 数値（int, double, decimal）
-    if ($Value -match '^\d+$') {
-        return [int]$Value
-    }
-    if ($Value -match '^\d+\.\d+$') {
-        return [double]$Value
-    }
-    if ($Value -match '^\d+\.\d+[dD]$') {
-        return [decimal]$Value.TrimEnd('d','D')
-    }
-
-    # 文字列（クォート除去）
-    if ($Value -match '^["\'](.*)["\']$') {
-        return $Matches[1]
-    }
-    if ($Value -match '^@\("(.*)"\)$') {
-        return $Matches[1]
-    }
-
-    # 配列・ハッシュテーブル等は文字列のまま返す
-    return $Value
-}
 
 # --init: 初期構成生成
 function Initialize-Psico {
@@ -268,6 +203,11 @@ function Install-PsicoScript {
         Write-Host "Installed: $fileName" -ForegroundColor Green
         Write-PsicoLog "Installed: $fileName" 1
 
+        # キャッシュ無効化（.ps1 の場合のみ）
+        if ($extension -eq '.ps1') {
+            global:_Psico_InvalidateScriptCache
+        }
+
     } catch {
         Write-Host "Error: Failed to install - $($_.Exception.Message)" -ForegroundColor Red
         if (Test-Path $tempFile) {
@@ -308,6 +248,9 @@ Write-Host "Hello from $Name!"
     Write-Host "Created: $Name.ps1" -ForegroundColor Green
     Write-PsicoLog "Created script: $Name" 1
 
+    # キャッシュ無効化
+    global:_Psico_InvalidateScriptCache
+
     # エディタで開く
     $config = Get-PsicoConfig
     Start-Process $config.editor -ArgumentList "`"$scriptPath`""
@@ -327,6 +270,9 @@ function Remove-PsicoScript {
     Remove-Item $scriptPath -Force
     Write-Host "Removed: $Name.ps1" -ForegroundColor Green
     Write-PsicoLog "Removed script: $Name" 1
+
+    # キャッシュ無効化
+    global:_Psico_InvalidateScriptCache
 }
 
 # --edit: スクリプト編集
@@ -548,6 +494,7 @@ OPTIONS:
     --info <name>                   Show script metadata
     --test <name>                   Run script without arguments to verify it executes without errors
     --log <level>                   Set log level (0-2, or -1 to delete logs)
+    --completion                    Enable tab completion
     --help, -h                      Show this help
     --version, -v                   Show version
 
@@ -706,8 +653,13 @@ function Convert-ArgumentValue {
         "double"    { [double]$Value }
         "decimal"   { [decimal]$Value }
         "bool"      {
-            if ($Value -match '^(true|false|yes|no|1|0)$') { [bool]$Value }
-            else { throw "Invalid bool value: $Value (use true/false, yes/no, 1/0)" }
+            # bool型は文字列 'true'/'false' を正しく変換
+            if ($Value -match '^(true|false|yes|no|1|0)$') {
+                return [bool]::Parse($Value)
+            }
+            # 空文字列やnullの場合はfalse（デフォルト値がある場合はそちらが使われる）
+            if ([string]::IsNullOrEmpty($Value)) { return $false }
+            throw "Invalid bool value: $Value (use true/false, yes/no, 1/0)"
         }
         "url"       {
             try {
@@ -739,6 +691,10 @@ function Convert-ArgumentValue {
 }
 
 # メインロジック（ラッパーから dot-source される前提。ラッパーがバインドしたパラメータを使用）
+# ラッパー経由でない場合（$Command 未定義）は何もしない
+if (-not (Test-Path Variable:Command)) {
+    return
+}
 if (-not $Command) {
     Show-PsicoHelp
     exit
@@ -747,6 +703,7 @@ if (-not $Command) {
 switch -Regex ($Command) {
     '^(-h|--help)$' { Show-PsicoHelp }
     '^(-v|--version)$' { Write-Host "PSICO version $(Get-PsicoVersion)" }
+    '^--completion$' { Manage-PsicoCompletion }
     '^--init$' { Initialize-Psico }
     '^(-i|--install)$' {
         if ($Arg1) {

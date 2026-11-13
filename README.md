@@ -76,9 +76,10 @@ function psico {
 ### 補完の永続化
 `$PROFILE` に以下を記載。
 ```
+function psico {
+    & "<PSICO ディレクトリ>\psico.ps1" @args
+}
 . "<PSICO ディレクトリ>\core\psico_completion.ps1"
-Enable-PsicoCompletion
-#Enable-PsicoCompletion -Silent
 ```
 
 ### 補完機能の不具合

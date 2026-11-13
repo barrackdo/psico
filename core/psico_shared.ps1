@@ -1,4 +1,4 @@
-# {"version": "0.1.2"}
+# {"version": "0.1.3"}
 
 <#
 .SYNOPSIS
@@ -12,6 +12,19 @@
 # ============================================================
 # 共通定数（グローバルスコープで共有）
 # ============================================================
+
+# 設定の既定値（ハードコード - config.json がない/壊れていても動作するため）
+$global:_PsicoDefaultConfig = @{
+    editor           = "notepad"
+    logLevel         = 1
+    completionSilent = $false
+}
+
+# 有効な logLevel の値
+$global:_PsicoValidLogLevels = @(0, 1, 2, -1)
+
+# 有効な completionSilent の値（bool型のみ）
+$global:_PsicoValidCompletionSilent = @($true, $false)
 
 # オプション定義（短縮形→長縮形のマッピング含む）
 $global:_PsicoOptions = @{

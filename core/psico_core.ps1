@@ -1,4 +1,4 @@
-# {"version": "0.1.2"}
+# {"version": "0.1.3"}
 
 <#
 .SYNOPSIS
@@ -22,13 +22,8 @@ if (-not (Test-Path Variable:script:PsicoRoot)) {
 # 共通モジュール読み込み
 . (Join-Path $script:CoreDir "psico_shared.ps1")
 
-# 補完状態追跡用グローバル変数（初回のみ初期化）
-if (-not (Test-Path Variable:global:_PsicoCompletionEnabled)) {
-    $global:_PsicoCompletionEnabled = $false
-}
-
-# 補完モジュール読み込み（トップレベルで dot-source して global: 関数を確実に定義）
-. (Join-Path $script:CoreDir "psico_completion.ps1")
+# 補完モジュールは遅延読み込み（psico_completion.ps1 がスタブを自動登録）
+# トップレベルでは読み込まない
 
 # --completion: 補完機能を有効化（引数なし）
 function Manage-PsicoCompletion {
@@ -44,7 +39,18 @@ function Manage-PsicoCompletion {
             $silent = $true
         }
     } catch { }
-    Enable-PsicoCompletion -Silent:$silent
+    # 公開関数で初期化（モジュールは既に読み込まれている前提、未読み込みならここで dot-source）
+    if (-not (Test-Path Function:global:Enable-PsicoCompletion)) {
+        $completionPath = Join-Path $script:CoreDir "psico_completion.ps1"
+        if (Test-Path $completionPath) {
+            . $completionPath
+        }
+    }
+    if (Test-Path Function:global:Enable-PsicoCompletion) {
+        Enable-PsicoCompletion -Silent:$silent
+    } else {
+        Write-Host "Error: Failed to load completion module" -ForegroundColor Red
+    }
 }
 
 # バージョン取得（ファイル先頭の # {"version": "x.y.z"} から読み取り）
@@ -59,22 +65,55 @@ function Get-PsicoVersion {
     return "0.1.0"
 }
 
-# 設定読み込み
+# 設定読み込み（既定値は psico_shared.ps1 の $global:_PsicoDefaultConfig から取得）
 function Get-PsicoConfig {
+    $defaultConfig = $global:_PsicoDefaultConfig
+
     if (Test-Path $script:ConfigFile) {
         try {
-            return Get-Content $script:ConfigFile -Raw | ConvertFrom-Json
-        } catch {
-            return @{
-                editor = "notepad.exe"
-                logLevel = 2
+            $config = Get-Content $script:ConfigFile -Raw | ConvertFrom-Json
+
+            # 既定値とマージ（設定ファイルにないキー、または null 値のキーは既定値を使用）
+            $merged = @{}
+            foreach ($key in $defaultConfig.Keys) {
+                $prop = $config.PSObject.Properties[$key]
+                if ($prop -and $null -ne $prop.Value) {
+                    $merged[$key] = $prop.Value
+                } else {
+                    $merged[$key] = $defaultConfig[$key]
+                }
             }
+
+            # logLevel の検証（明示的に不正な値が指定された場合のみエラー）
+            $logLevelProp = $config.PSObject.Properties['logLevel']
+            if ($logLevelProp -and $null -ne $logLevelProp.Value) {
+                # 整数型でなければエラー（文字列 "1" 等も不可）
+                # JSON数値は Int64 としてパースされるため、整数型全般を許可
+                if ($logLevelProp.Value -isnot [int] -and $logLevelProp.Value -isnot [long]) {
+                    throw "Invalid logLevel value: $($logLevelProp.Value). Must be an integer (0, 1, 2, or -1)"
+                }
+                if ($merged.logLevel -notin $global:_PsicoValidLogLevels) {
+                    throw "Invalid logLevel value: $($merged.logLevel). Valid values: $($global:_PsicoValidLogLevels -join ', ')"
+                }
+            }
+
+            # completionSilent の検証（明示的に不正な値が指定された場合のみエラー）
+            $silentProp = $config.PSObject.Properties['completionSilent']
+            if ($silentProp -and $null -ne $silentProp.Value) {
+                # boolean 型でなければエラー（文字列 "true"/"false" も不可）
+                if ($silentProp.Value -isnot [bool]) {
+                    throw "Invalid completionSilent value: $($silentProp.Value). Must be true or false (boolean)"
+                }
+            }
+
+            return $merged
+        } catch {
+            Write-Host "Error reading config: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "Using default configuration." -ForegroundColor Yellow
+            return $defaultConfig
         }
     }
-    return @{
-        editor = "notepad.exe"
-        logLevel = 2
-    }
+    return $defaultConfig
 }
 
 # 設定保存
@@ -100,7 +139,8 @@ function Write-PsicoLog {
             New-Item -ItemType Directory -Path $script:LogsDir -Force | Out-Null
         }
 
-        $logFile = Join-Path $script:LogsDir "psico_$(Get-Date -Format 'yyyyMMdd').log"
+        # ログファイル名: psico_<yyyymmdd_HHMMSS>.log
+        $logFile = Join-Path $script:LogsDir "psico_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
         Add-Content -Path $logFile -Value $logMessage -Encoding UTF8
     }
 }
@@ -118,10 +158,7 @@ function Initialize-Psico {
     }
 
     if (-not (Test-Path $script:ConfigFile)) {
-        $defaultConfig = @{
-            editor = "notepad.exe"
-            logLevel = 2
-        }
+        $defaultConfig = $global:_PsicoDefaultConfig.Clone()
         Set-PsicoConfig $defaultConfig
         Write-Host "Created: $script:ConfigFile"
     }

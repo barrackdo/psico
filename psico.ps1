@@ -1,4 +1,4 @@
-# {"version": "0.1.2"}
+# {"version": "0.1.3"}
 
 <#
 .SYNOPSIS
@@ -23,16 +23,6 @@ $script:ScriptsDir  = Join-Path $script:PsicoRoot "scripts"
 $script:ModulesDir  = Join-Path $script:PsicoRoot "modules"
 $script:LogsDir     = Join-Path $script:PsicoRoot "logs"
 $script:ConfigFile  = Join-Path $script:PsicoRoot "config.json"
-
-# config.json の初期化（まだの場合のみ）
-if (-not (Test-Path $script:ConfigFile)) {
-    $defaultConfig = @{
-        editor            = "notepad.exe"
-        logLevel          = 2
-        completionSilent  = $true
-    }
-    $defaultConfig | ConvertTo-Json | Set-Content $script:ConfigFile -Encoding UTF8
-}
 
 # --- 生の引数 ($args) を直接パース ---
 # param ブロックを使わないことで $args に全引数が残るようにする
